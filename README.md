@@ -438,29 +438,6 @@ Prioritized execution order:
 
 ---
 
-## Visualizations Reference
-
-The `plots/` directory contains 25 pre-rendered charts. The following are the most analytically significant:
-
-| Chart | File | Key Insight |
-|---|---|---|
-| Session Funnel Sankey | session_flow_sankey.png | Visualizes the massive drop-off between Search and View Menu |
-| Step-over-Step Conversion | step-over-step_conversion_rate.png | Search to View Menu at 46.9% is the only red bar |
-| Monthly GMV and Orders | monthly_GMV_&_order_volume.png | Shows GMV compounding from 71K to 6.25M INR |
-| Payment Failure by Platform | payment_failure_platform.png | Web at 96.5% versus ~2% on mobile |
-| Cancellation by Delivery Time | cancellation_rate_by_delivery_time.png | 10x jump at the 45-minute threshold |
-| Gold vs Standard Volume and AOV | Gold_vs_standard_Volume&AOV.png | Gold drives 25,914 orders at 719 INR AOV |
-| Repeat Rate Gold vs Standard | RepeatRate_GoldvsStandard.png | 98.7% versus 54.9% |
-| AOV by City Tier | AOV_by_citytier.png | 768 INR (Tier 1) versus 491 INR (Tier 3) |
-| GMV by City Tier | GMV_by_city_tiew.png | Tier 1 at 16.6M versus Tier 3 at 1.5M |
-| LTV by Channel | LTV_by_channel.png | Referral at 12,504 INR leads all channels |
-| AOV by Promo Code | AOV_by_promocode.png | BOGO at 805 versus DISCOUNT_20PCT at 587 |
-| Orders by Hour and Day | orders_placed_by_time.png | Saturday dinner rush (19:00--23:00) is peak |
-| Daily App Opens | daily_app_opens.png | Consistent upward trend with weekly periodicity |
-| Retention by Channel | retention%_by_AcquistionChannel.png | Referral retains best over 5 months |
-| Delivery Time Distribution | delivery_time_dist.png | Steep drop after 45 minutes with long tail |
-
----
 
 ## Limitations
 
