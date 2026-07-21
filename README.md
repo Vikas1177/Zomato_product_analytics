@@ -16,9 +16,8 @@ A product analytics project built on a synthetic simulation of Zomato's food del
 8. [Bottleneck Analysis](#bottleneck-analysis)
 9. [What Is Working Well](#what-is-working-well)
 10. [Recommendations Summary](#recommendations-summary)
-11. [Visualizations Reference](#visualizations-reference)
-12. [Limitations](#limitations)
-13. [License](#license)
+11. [Limitations](#limitations)
+12. [License](#license)
 
 ---
 
