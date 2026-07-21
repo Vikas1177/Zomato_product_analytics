@@ -118,7 +118,6 @@ product_analytics/
 |-- data_generation/
 |   |-- main.py                  # FastAPI simulation engine (ZomatoDataSimulator)
 |   |-- app.py                   # Streamlit UI for configuring simulation parameters
-|-- plots/                       # 25 pre-rendered PNG charts
 |-- product_analysis_story.md    # Narrative analysis document
 ```
 
