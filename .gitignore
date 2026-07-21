@@ -1,0 +1,10 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/
+
+# Streamlit config (optional to ignore, but often local)
+#.streamlit/
