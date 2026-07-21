@@ -214,7 +214,6 @@ GMV = App Opens x Funnel Conversion % x (1 - Cancel Rate) x AOV
 | Payment Failure Rate | 7.2% | <5% | Above target |
 | Cancel Rate | 4.1% | <5% | Within target |
 
-![Order Status](plots/order_status.png)
 
 ### Retention
 
@@ -244,7 +243,6 @@ The conversion funnel shows six steps from app open to payment success. The larg
 | Checkout | 50,648 | 66.4% | 17.0% |
 | Payment Success | 33,137 | 65.4% | 11.1% |
 
-![Funnel Conversion](plots/funnel.png)
 
 **Estimated GMV impact**: Improving this step from 46.9% to 55% would push approximately 5,300 additional sessions to payment, translating to roughly 3.8M INR in annual GMV uplift.
 
@@ -274,7 +272,6 @@ The payment failure rate by platform reveals Web at 96.5% compared to Android at
 | Delivered Orders | 17,713 | 13,984 | 65 |
 | Payment Failure Rate | 2.1% | 2.0% | 96.5% |
 
-![Payment Failure by Platform](plots/payment_failure_by_platform.png)
 
 **Estimated GMV impact**: 14,232 sessions at 11.1% expected conversion and 711 INR AOV equals approximately 1.1M INR in lost GMV from web payment failures alone.
 
@@ -307,8 +304,6 @@ Of 5,000 registered users, 2,165 (43.3%) never placed a single order. Activation
 | iOS | 60.0% |
 | Web | 14.3% |
 
-![Activation Rate by Segment](plots/Activation_rate_by_segment.png)
-
 **Estimated GMV impact**: Converting even 30% of the 2,165 inactive users at 711 INR AOV yields 461K INR in incremental GMV.
 
 **Theorized root causes**:
@@ -337,7 +332,6 @@ Cancellation rate remains flat at 1.8% for deliveries under 45 minutes. It spike
 | 45--60 mins | 18.2% |
 | >60 mins | 27.2% |
 
-![Cancellation Rate by Delivery Time](plots/cancel_rate_by_delieverytime.png)
 
 The delivery time distribution histogram shows a steep drop-off beyond 45 minutes, with a long tail extending to ~75 minutes. The long tail corresponds to rain-affected deliveries during monsoon months.
 
@@ -368,8 +362,6 @@ Tier 1 cities generate 73.6% of total GMV with an AOV of 768 INR. Tier 2 contrib
 | Tier 1 | 16.6M INR | 768 INR | 21,665 | 73.6% |
 | Tier 2 | 4.5M INR | 633 INR | 7,070 | 19.8% |
 | Tier 3 | 1.5M INR | 491 INR | 3,027 | 6.6% |
-
-![GMV by City Tier](plots/GMV_by_city_tier.png)
 
 At the city level, the lowest-performing cities are Surat (481 INR AOV), Patna (493 INR AOV), and Bhopal (~486 INR AOV), all Tier 3.
 
@@ -403,15 +395,10 @@ Gold members constitute 19.1% of the user base but drive 82.5% of total GMV. The
 | Median Orders/User | 23 | 2 |
 | Activation Rate | 98.0% | 46.9% |
 
-![Gold vs Standard Contribution](plots/gmv_contri_GoldvsStandard.png)
-![Gold vs Standard Volume & AOV](plots/gold_vs_standard_volume_&_aov.png)
-![Membership Mix](plots/membership_mix.png)
-
 ### Monthly GMV Compounding
 
 GMV grew from approximately 71K INR in June 2025 to 6.25M INR in May 2026. Both order volume and GMV show consistent month-over-month growth, with the order volume line and GMV bars rising in parallel.
 
-![Monthly GMV and Order Volume](plots/GMV_and_orderVolume.png)
 
 ### BOGO Promo Drives Highest AOV
 
@@ -429,7 +416,6 @@ BOGO produces 805 INR AOV, 12% higher than no-promo orders at 717 INR. FREE_DELI
 
 Average customer LTV by acquisition channel: Referral (12,504 INR) leads all channels, followed by Organic (8,828 INR), Email (8,029 INR), Social Media (7,305 INR), and Paid Search (6,336 INR). Referral users also show the highest retention over time, maintaining approximately 30% retention at month 5 compared to 17--22% for other channels.
 
-![LTV per Customer by Channel](plots/LTV_per_customer_byChannel.png)
 
 ### Strong Retention Curve
 
