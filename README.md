@@ -433,13 +433,6 @@ D1 to D30 erosion is only 1.2 percentage points (29.2% to 28.0%), meaning 96% of
 | Tier 2/3 low AOV | Limited supply, no upselling | 500K INR | Medium (growth) | Medium |
 | **Total Recoverable GMV** | | **~6.6M INR** | | |
 
-Prioritized execution order:
-1. Fix the web payment gateway -- highest ROI at 1.1M INR for likely a single engineering sprint
-2. Migrate all users to Frictionless onboarding -- proven 19pp activation improvement
-3. Invest in search ranking ML -- highest absolute impact at 3.8M INR but requires more resources
-4. Implement proactive delay notifications and ETA caps at 45 minutes
-5. Launch Tier 2/3 upselling and free delivery threshold programs
-
 ---
 
 
