@@ -450,12 +450,13 @@ with t2:
                 ch_rows.append({'Channel':ch.replace('_',' ').title(),'Step':label,
                                 'Rate':cnt/opens*100 if opens>0 else 0})
         df_ch = pd.DataFrame(ch_rows)
-        key_steps = ['Search','Add to Cart','Checkout','Pay Success']
-        fig = px.bar(df_ch[df_ch['Step'].isin(key_steps)], x='Step', y='Rate',
+        all_steps = ['Search','View Menu','Add to Cart','Checkout','Pay Success']
+        fig = px.bar(df_ch[df_ch['Step'].isin(all_steps)], x='Step', y='Rate',
                      color='Channel', barmode='group',
                      color_discrete_map={k.replace('_',' ').title():v for k,v in CHANNEL_COLORS.items()},
-                     text_auto='.1f', labels={'Rate':'% of App Opens'})
-        T(fig, "Funnel % by Channel (relative to App Opens)", h=340)
+                     text_auto='.1f', labels={'Rate':'% of App Opens'},
+                     category_orders={'Step': all_steps})
+        T(fig, "Funnel % by Channel (relative to App Opens)", h=360)
         fig.update_layout(yaxis=dict(ticksuffix='%'))
         st.plotly_chart(fig, use_container_width=True, key="t2_ch_funnel")
 
@@ -463,8 +464,8 @@ with t2:
     fa, fb = st.columns(2)
 
     with fa:
-        ks = ['app_open','add_to_cart','checkout','payment_success']
-        kl = ['App Open','Add Cart','Checkout','Pay']
+        ks = ['app_open','search','view_menu','add_to_cart','checkout','payment_success']
+        kl = ['App Open','Search','View Menu','Add to Cart','Checkout','Pay']
         rows = []
         for g_val, label in [(True,'Gold'),(False,'Standard')]:
             u_ids = fu[fu['is_zomato_gold']==g_val]['user_id']
@@ -476,8 +477,9 @@ with t2:
         df_gf = pd.DataFrame(rows)
         fig = px.bar(df_gf, x='Step', y='Rate', color='Group', barmode='group',
                      color_discrete_map={'Gold':R,'Standard':GY},
-                     text_auto='.1f', labels={'Rate':'% of App Opens'})
-        T(fig, "Funnel: Gold vs Standard", h=300)
+                     text_auto='.1f', labels={'Rate':'% of App Opens'},
+                     category_orders={'Step': kl})
+        T(fig, "Funnel: Gold vs Standard", h=320)
         fig.update_layout(yaxis=dict(ticksuffix='%'))
         st.plotly_chart(fig, use_container_width=True, key="t2_funnel_gold")
 
@@ -603,22 +605,6 @@ with t3:
                    delta=f"{d30_rate/d1_rate*100:.0f}% of D1 retained at D30" if d1_rate > 0 else "—",
                    delta_color="inverse")
 
-    sec("Monthly Cohort Retention Heatmap")
-    if not fo.empty:
-        fo_c = fo.copy()
-        fo_c['signup_month'] = pd.to_datetime(fo_c['signup_date']).dt.to_period('M')
-        fo_c['order_month']  = fo_c['order_time'].dt.to_period('M')
-        fo_c['cohort_idx']   = ((fo_c['order_month'].dt.year - fo_c['signup_month'].dt.year)*12 +
-                                 (fo_c['order_month'].dt.month - fo_c['signup_month'].dt.month))
-        cp  = fo_c.groupby(['signup_month','cohort_idx'])['user_id'].nunique().unstack(fill_value=0)
-        rm  = cp.divide(cp.iloc[:,0], axis=0)
-        rm.index = rm.index.astype(str)
-        fig = px.imshow(rm, text_auto=".1%", aspect="auto",
-                         color_continuous_scale=[[0,'#FFF7F7'],[0.4,'#FCA5A5'],[1.0,R]],
-                         labels=dict(x="Months Active", y="Signup Cohort", color="Retention"))
-        T(fig, "Cohort Retention — Ordering Users per Month Since Signup", h=400)
-        st.plotly_chart(fig, use_container_width=True, key="t3_cohort_heat")
-
     sec("Day-N Retention Benchmarks")
     if not fu.empty and not fe.empty:
         fe_c2 = fe.copy()
@@ -668,7 +654,7 @@ with t3:
         for ch in sorted(fo_ch['acquisition_channel'].dropna().unique()):
             ch_users = fu[fu['acquisition_channel']==ch]['user_id'].nunique()
             ch_data  = fo_ch[fo_ch['acquisition_channel']==ch]
-            for period in sorted(ch_data['period'].unique())[:6]:
+            for period in sorted(ch_data['period'].unique()):
                 active = ch_data[ch_data['period']==period]['user_id'].nunique()
                 ch_ret_rows.append({'Channel':ch.replace('_',' ').title(),
                                     'Period':period,
