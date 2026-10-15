@@ -2,6 +2,7 @@
 
 A product analytics project built on a synthetic simulation of Zomato's food delivery platform. The objective is to decompose Gross Merchandise Value (GMV) into its constituent levers, identify bottlenecks that suppress revenue, theorize root causes behind each bottleneck, and propose data-backed interventions to recover lost GMV.
 
+dashboard - https://vikas1177-zomato-product-analytics-analytics-7tgqvq.streamlit.app/
 ---
 
 ## Table of Contents
