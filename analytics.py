@@ -187,13 +187,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+PERIODS = {"Last 1 year": 12, "Last 6 months": 6, "Last 3 months": 3, "Last month": 1}
+data_start = min(df_events['event_time'].min(), df_orders['order_time'].min())
+data_end   = max(df_events['event_time'].max(), df_orders['order_time'].max())
+
 with st.expander("Segment Filters", expanded=False):
     c1, c2, c3, c4 = st.columns(4)
 
-    min_date = df_events['event_time'].min().date()
-    max_date = df_events['event_time'].max().date()
-    date_rng = c1.date_input("Date range", value=(min_date, max_date),
-                             min_value=min_date, max_value=max_date, key="d_global")
+    period = c1.selectbox("Time period", list(PERIODS) + ["Custom range"], index=0, key="period_global")
+    date_rng = ()
+    if period == "Custom range":
+        date_rng = c1.date_input("Date range", value=(data_start.date(), data_end.date()),
+                                 min_value=data_start.date(), max_value=data_end.date(), key="d_global")
 
     tiers = c2.multiselect("City tier", sorted(df_users['city_tier'].unique()),
                            default=sorted(df_users['city_tier'].unique()), key="t_global")
@@ -232,20 +237,36 @@ fu = df_users[
 if channels:
     fu = fu[fu['acquisition_channel'].isin(channels)]
 
-ids = fu['user_id']
-fe  = df_merged_events[df_merged_events['user_id'].isin(ids)]
-fo  = df_merged_orders[df_merged_orders['user_id'].isin(ids)]
+if period in PERIODS:
+    end_dt   = data_end
+    start_dt = data_end - pd.DateOffset(months=PERIODS[period])
+elif len(date_rng) >= 1:
+    start_dt = pd.to_datetime(date_rng[0])
+    end_dt   = pd.to_datetime(date_rng[-1]) + pd.Timedelta(days=1, seconds=-1)
+else:
+    start_dt, end_dt = data_start, data_end
 
-if len(date_rng) == 2:
-    start_dt = pd.to_datetime(date_rng[0])
-    end_dt = pd.to_datetime(date_rng[1]) + pd.Timedelta(days=1, seconds=-1)
-    fe = fe[fe['event_time'].between(start_dt, end_dt)]
-    fo = fo[fo['order_time'].between(start_dt, end_dt)]
-elif len(date_rng) == 1:
-    start_dt = pd.to_datetime(date_rng[0])
-    end_dt = pd.to_datetime(date_rng[0]) + pd.Timedelta(days=1, seconds=-1)
-    fe = fe[fe['event_time'].between(start_dt, end_dt)]
-    fo = fo[fo['order_time'].between(start_dt, end_dt)]
+ids = fu['user_id']
+# *_hist keep history up to the window end, for cohort metrics (retention, activation) that look past signup.
+fe_hist = df_merged_events[df_merged_events['user_id'].isin(ids) & (df_merged_events['event_time'] <= end_dt)]
+fo_hist = df_merged_orders[df_merged_orders['user_id'].isin(ids) & (df_merged_orders['order_time'] <= end_dt)]
+fe = fe_hist[fe_hist['event_time'] >= start_dt]
+fo = fo_hist[fo_hist['order_time'] >= start_dt]
+
+fu_new = fu[fu['signup_date'].between(start_dt, end_dt)]
+fu_act = fu[fu['user_id'].isin(fe['user_id'].unique())]
+
+period_days = (end_dt - max(start_dt, data_start)).days + 1
+GRAIN       = 'W' if period_days <= 100 else 'M'
+GRAIN_LABEL = 'Weekly' if GRAIN == 'W' else 'Monthly'
+GRAIN_FMT   = '%d %b' if GRAIN == 'W' else '%b %Y'
+
+def time_bucket(s):
+    return s.dt.to_period(GRAIN).dt.start_time
+
+period_label = period if period in PERIODS else "Custom range"
+st.caption(f"Showing **{period_label}**: {start_dt:%d %b %Y} — {end_dt:%d %b %Y} · "
+           f"{len(fu_act):,} active users · {len(fu_new):,} new signups")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -263,16 +284,18 @@ t1, t2, t3, t4, t5, t6 = st.tabs([
 with t1:
     delivered = fo[fo['order_status'] == 'Delivered']
 
-    if not fo.empty:
-        latest_month = fo['order_time'].dt.to_period('M').max()
-        maou = fo[
-            (fo['order_time'].dt.to_period('M') == latest_month) &
-            (fo['order_status'] == 'Delivered')
-        ]['user_id'].nunique()
-    else:
-        maou = 0
+    active_ordering = delivered['user_id'].nunique() if not delivered.empty else 0
 
-    ordering_users  = delivered['user_id'].nunique() if not delivered.empty else 1
+    # Average over trailing 30-day windows ending at end_dt, so partial calendar months don't drag it down.
+    n_windows = max(1, period_days // 30)
+    if not delivered.empty:
+        win = (end_dt - delivered['order_time']).dt.days // 30
+        avg_maou = (delivered[win < n_windows].groupby(win)['user_id'].nunique()
+                    .reindex(range(n_windows), fill_value=0).mean())
+    else:
+        avg_maou = 0
+
+    ordering_users  = active_ordering if active_ordering > 0 else 1
     total_orders    = len(delivered)
     orders_per_user = total_orders / ordering_users if ordering_users > 0 else 0
 
@@ -295,11 +318,16 @@ with t1:
     crash_r    = crashes / tot_sess * 100           if tot_sess > 0 else 0
     pay_fail_r = pay_fail / (pay_ok+pay_fail) * 100 if (pay_ok+pay_fail) > 0 else 0
     cancel_r   = len(fo[fo['order_status']=='Cancelled']) / len(fo) * 100 if len(fo) > 0 else 0
-    gold_pct   = fu['is_zomato_gold'].mean() * 100  if len(fu) > 0 else 0
+    gold_pct   = fu_act['is_zomato_gold'].mean() * 100 if len(fu_act) > 0 else 0
 
-    sec("North Star Metrics")
+    sec(f"North Star Metrics — {period_label}")
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Monthly Active Ordering Users", f"{maou:,}")
+    if n_windows == 1:
+        k1.metric("Monthly Active Ordering Users", f"{active_ordering:,}")
+    else:
+        k1.metric("Active Ordering Users", f"{active_ordering:,}",
+                  help=f"Unique users with a delivered order in the selected period. "
+                       f"Avg {avg_maou:,.0f} per month (MAOU = average unique ordering users per 30-day window).")
     k2.metric("Orders per Active User",        f"{orders_per_user:.1f}")
     k3.metric("GMV",                           f"₹{gmv/1e6:.2f}M")
     k4.metric("Avg Order Value",               f"₹{aov:,.0f}")
@@ -307,15 +335,15 @@ with t1:
 
     sec("Platform Health")
     ph1, ph2, ph3, ph4, ph5 = st.columns(5)
-    ph1.metric("Funnel Conversion",  f"{conv:.1f}%",       delta=f"{conv-15:.1f}% vs 15% target")
-    ph2.metric("Gold Adoption",      f"{gold_pct:.1f}%",   delta=f"{gold_pct-30:.1f}% vs 30% target")
-    ph3.metric("Crash Rate",         f"{crash_r:.2f}%",    delta=f"{crash_r-1:.2f}% vs 1% target",    delta_color="inverse")
-    ph4.metric("Pay Failure Rate",   f"{pay_fail_r:.1f}%", delta=f"{pay_fail_r-5:.1f}% vs 5% target", delta_color="inverse")
-    ph5.metric("Cancel Rate",        f"{cancel_r:.1f}%",   delta=f"{cancel_r-5:.1f}% vs 5% target",   delta_color="inverse")
+    ph1.metric("Funnel Conversion",  f"{conv:.1f}%")
+    ph2.metric("Gold Adoption",      f"{gold_pct:.1f}%")
+    ph3.metric("Crash Rate",         f"{crash_r:.2f}%")
+    ph4.metric("Pay Failure Rate",   f"{pay_fail_r:.1f}%")
+    ph5.metric("Cancel Rate",        f"{cancel_r:.1f}%")
 
     if not delivered.empty:
-        sec("Monthly GMV vs Orders")
-        d = delivered.assign(month=lambda x: x['order_time'].dt.to_period('M').astype(str))
+        sec(f"{GRAIN_LABEL} GMV vs Orders")
+        d = delivered.assign(month=time_bucket(delivered['order_time']))
         monthly = d.groupby('month').agg(gmv=('amount_inr','sum'), orders=('amount_inr','count')).reset_index()
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         fig.add_trace(go.Bar(x=monthly['month'], y=monthly['gmv'], name='GMV ₹',
@@ -325,10 +353,10 @@ with t1:
                                  marker=dict(size=5, color=OR)), secondary_y=True)
         fig.update_layout(paper_bgcolor=BG, plot_bgcolor=BG, font_color=TK, height=280,
                           margin=dict(l=8,r=8,t=40,b=8),
-                          title=dict(text="Monthly Delivered GMV & Order Volume",
+                          title=dict(text=f"{GRAIN_LABEL} Delivered GMV & Order Volume",
                                      font=dict(family="Inter", size=13, color=WH)),
                           legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h", yanchor="bottom", y=1.1, xanchor="right", x=1))
-        fig.update_xaxes(gridcolor=GRID, linecolor=GRID)
+        fig.update_xaxes(gridcolor=GRID, linecolor=GRID, tickformat=GRAIN_FMT)
         fig.update_yaxes(gridcolor=GRID, linecolor=GRID)
         st.plotly_chart(fig, use_container_width=True, key="t1_monthly_gmv")
 
@@ -504,50 +532,36 @@ with t2:
                 st.plotly_chart(fig, use_container_width=True, key="t2_funnel_device")
 
     sec("Activation Velocity")
-    first_open = fe[fe['event_name']=='app_open'].groupby('user_id')['event_time'].min().reset_index(name='first_open')
-    first_cart = fe[fe['event_name']=='add_to_cart'].groupby('user_id')['event_time'].min().reset_index(name='first_cart')
-    first_pay  = fe[fe['event_name']=='payment_success'].groupby('user_id')['event_time'].min().reset_index(name='first_pay')
+    st.caption("Activation covers users who signed up in the selected period, tracked up to its end date. "
+               "Open → Cart / Pay is measured within the session of the user's first cart / first payment.")
+    fe_new = fe_hist[fe_hist['user_id'].isin(fu_new['user_id'])]
+    first_open = fe_new[fe_new['event_name']=='app_open'].groupby('user_id')['event_time'].min().reset_index(name='first_open')
+    first_cart = fe_new[fe_new['event_name']=='add_to_cart'].groupby('user_id')['event_time'].min().reset_index(name='first_cart')
+    first_pay  = fe_new[fe_new['event_name']=='payment_success'].groupby('user_id')['event_time'].min().reset_index(name='first_pay')
     act = (first_open
            .merge(first_cart, on='user_id', how='left')
            .merge(first_pay,  on='user_id', how='left')
            .merge(fu[['user_id','onboarding_cohort','is_zomato_gold','platform']], on='user_id', how='left'))
-    act['ttc'] = (act['first_cart'] - act['first_open']).dt.total_seconds() / 60
-    act['ttp'] = (act['first_pay']  - act['first_open']).dt.total_seconds() / 60
+    sess_open = fe_new[fe_new['event_name']=='app_open'].groupby('session_id')['event_time'].min()
+
+    def mins_from_session_open(step):
+        ev = fe_new[fe_new['event_name']==step].sort_values('event_time').drop_duplicates('user_id')
+        mins = (ev['event_time'] - ev['session_id'].map(sess_open)).dt.total_seconds() / 60
+        return pd.Series(mins.values, index=ev['user_id'].values)
+
+    act['ttc'] = act['user_id'].map(mins_from_session_open('add_to_cart'))
+    act['ttp'] = act['user_id'].map(mins_from_session_open('payment_success'))
     act.loc[act['ttc'] < 0, 'ttc'] = np.nan
     act.loc[act['ttp'] < 0, 'ttp'] = np.nan
     act_rate = act['first_pay'].notnull().mean()*100 if len(act) > 0 else 0
 
     av1,av2,av3 = st.columns(3)
     av1.metric("Activation Rate (1st Purchase)", f"{act_rate:.1f}%")
-    av2.metric("Median: Open → Cart",            f"{act['ttc'].median():.1f} mins")
-    av3.metric("Median: Open → Pay",             f"{act['ttp'].median():.1f} mins")
-
-    aa, ab, ac = st.columns(3)
-    with aa:
-        ttc_coh = act.dropna(subset=['ttc']).groupby('onboarding_cohort')['ttc'].median().reset_index()
-        fig = px.bar(ttc_coh, x='onboarding_cohort', y='ttc', color='onboarding_cohort',
-                     color_discrete_map={'Standard':GY,'Frictionless':R},
-                     text_auto='.1f', labels={'ttc':'Median Mins','onboarding_cohort':''})
-        T(fig, "Time to Cart by Onboarding", h=250); fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, key="t2_act_onb")
-    with ab:
-        ttp_data = act.dropna(subset=['ttp'])['ttp'].clip(0, 300)
-        fig = px.histogram(ttp_data, nbins=35, color_discrete_sequence=[R], opacity=0.8)
-        T(fig, "Time-to-First-Payment Distribution", h=250)
-        fig.update_layout(xaxis_title="Minutes", yaxis_title="Users")
-        st.plotly_chart(fig, use_container_width=True, key="t2_act_dist")
-    with ac:
-        act_plat = (act.groupby('platform')
-                    .apply(lambda x: x['first_pay'].notnull().mean()*100)
-                    .reset_index(name='Activation %'))
-        fig = px.bar(act_plat, x='platform', y='Activation %', color='Activation %',
-                      color_continuous_scale=[[0,'#FEE2E2'],[1,R]], text_auto='.1f')
-        T(fig, "Activation Rate by Platform", h=250)
-        fig.update_layout(yaxis=dict(ticksuffix='%'), coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True, key="t2_act_plat")
+    av2.metric("Median: Open → Cart",            f"{act['ttc'].median():.1f} mins" if act['ttc'].notna().any() else "—")
+    av3.metric("Median: Open → Pay",             f"{act['ttp'].median():.1f} mins" if act['ttp'].notna().any() else "—")
 
     sec("Activation Rate by Segment")
-    if not fu.empty and not fe.empty:
+    if not act.empty:
         seg_rows = []
         overall_act = act['first_pay'].notnull().mean() * 100 if len(act) > 0 else 0
         seg_rows.append({'Segment': 'Overall', 'Activation %': overall_act})
@@ -577,40 +591,40 @@ with t2:
 
 
 with t3:
+    st.caption("Retention is cohort-based: users who signed up in the selected period, tracked up to its end date. "
+               "A Day-N rate shows “—” when no one in the cohort is at least N days old yet.")
+    fe_r = fe_hist[fe_hist['user_id'].isin(fu_new['user_id'])].copy()
+    fe_r['days_since_signup'] = (fe_r['event_time'] - pd.to_datetime(fe_r['signup_date'])).dt.days
+    fu_r = fu_new.copy()
+    fu_r['acct_age'] = (end_dt - fu_r['signup_date']).dt.days
+
+    def day_n_retention(users, n):
+        elig = users.loc[users['acct_age'] >= n, 'user_id']
+        if elig.empty:
+            return None, 0
+        active = fe_r[(fe_r['days_since_signup'] == n) & fe_r['user_id'].isin(elig)]['user_id'].nunique()
+        return active / len(elig) * 100, active
+
     sec("Overall Retention at a Glance")
-    if not fu.empty and not fe.empty:
-        fe_r = fe.copy()
-        fe_r['days_since_signup'] = (fe_r['event_time'] - pd.to_datetime(fe_r['signup_date'])).dt.days
-        max_date_global = df_events['event_time'].max()
-        fu_r = fu.copy()
-        fu_r['acct_age'] = (max_date_global - fu_r['signup_date']).dt.days
-
-        d1_elig  = fu_r[fu_r['acct_age'] >= 1]['user_id']
-        d7_elig  = fu_r[fu_r['acct_age'] >= 7]['user_id']
-        d30_elig = fu_r[fu_r['acct_age'] >= 30]['user_id']
-
-        d1_users  = fe_r[(fe_r['days_since_signup'] == 1)  & fe_r['user_id'].isin(d1_elig)]['user_id'].nunique()
-        d7_users  = fe_r[(fe_r['days_since_signup'] == 7)  & fe_r['user_id'].isin(d7_elig)]['user_id'].nunique()
-        d30_users = fe_r[(fe_r['days_since_signup'] == 30) & fe_r['user_id'].isin(d30_elig)]['user_id'].nunique()
-
-        d1_rate  = d1_users  / len(d1_elig)  * 100 if len(d1_elig)  > 0 else 0
-        d7_rate  = d7_users  / len(d7_elig)  * 100 if len(d7_elig)  > 0 else 0
-        d30_rate = d30_users / len(d30_elig) * 100 if len(d30_elig) > 0 else 0
+    if not fu_r.empty and not fe_r.empty:
+        (d1_rate, d1_users), (d7_rate, d7_users), (d30_rate, d30_users) = (
+            day_n_retention(fu_r, n) for n in (1, 7, 30))
+        fmt_rate = lambda r: f"{r:.1f}%" if r is not None else "—"
 
         rr1, rr2, rr3, rr4 = st.columns(4)
-        rr1.metric("D1 Retention",  f"{d1_rate:.1f}%",  delta=f"{d1_users:,} active users",  delta_color="off")
-        rr2.metric("D7 Retention",  f"{d7_rate:.1f}%",  delta=f"{d7_users:,} active users",  delta_color="off")
-        rr3.metric("D30 Retention", f"{d30_rate:.1f}%", delta=f"{d30_users:,} active users", delta_color="off")
-        rr4.metric("D1→D30 Erosion", f"{d1_rate-d30_rate:.1f}pp",
-                   delta=f"{d30_rate/d1_rate*100:.0f}% of D1 retained at D30" if d1_rate > 0 else "—",
-                   delta_color="inverse")
+        rr1.metric("D1 Retention",  fmt_rate(d1_rate),  help=f"{d1_users:,} active users")
+        rr2.metric("D7 Retention",  fmt_rate(d7_rate),  help=f"{d7_users:,} active users")
+        rr3.metric("D30 Retention", fmt_rate(d30_rate), help=f"{d30_users:,} active users")
+        if d1_rate is not None and d30_rate is not None:
+            rr4.metric("D1→D30 Erosion", f"{d1_rate-d30_rate:.1f}pp",
+                       help=f"{d30_rate/d1_rate*100:.0f}% of D1 retained at D30" if d1_rate > 0 else None)
+        else:
+            rr4.metric("D1→D30 Erosion", "—")
+    else:
+        st.info("No users signed up in the selected period and segment.")
 
     sec("Day-N Retention Benchmarks")
-    if not fu.empty and not fe.empty:
-        fe_c2 = fe.copy()
-        fe_c2['days_since_signup'] = (fe_c2['event_time'] - pd.to_datetime(fe_c2['signup_date'])).dt.days
-        max_date_r2 = df_events['event_time'].max()
-        fu_c2 = fu.copy(); fu_c2['acct_age'] = (max_date_r2 - fu_c2['signup_date']).dt.days
+    if not fu_r.empty and not fe_r.empty:
         ret_rows = []
         seg_specs = [
             ('onboarding_cohort',['Standard','Frictionless']),
@@ -618,14 +632,12 @@ with t3:
         ]
         for seg_col, seg_vals in seg_specs:
             for sv in seg_vals:
-                lbl  = sv if isinstance(sv,str) else ('Gold' if sv else 'Standard')
-                cv_u = fu_c2[fu_c2[seg_col]==sv]['user_id']
-                for dn, min_age in [(1,1),(7,7),(30,30)]:
-                    elig   = fu_c2[(fu_c2['user_id'].isin(cv_u)) & (fu_c2['acct_age']>=min_age)]['user_id']
-                    active = fe_c2[(fe_c2['days_since_signup']==dn) & (fe_c2['user_id'].isin(elig))]['user_id'].nunique()
-                    pct    = active/len(elig)*100 if len(elig)>0 else 0
-                    ret_rows.append({'Label':lbl,'Day':f'D{dn}','Retention %':pct,'Seg':seg_col})
-        ret_df = pd.DataFrame(ret_rows)
+                lbl = sv if isinstance(sv,str) else ('Gold' if sv else 'Standard')
+                for dn in (1, 7, 30):
+                    pct, _ = day_n_retention(fu_r[fu_r[seg_col]==sv], dn)
+                    if pct is not None:
+                        ret_rows.append({'Label':lbl,'Day':f'D{dn}','Retention %':pct,'Seg':seg_col})
+        ret_df = pd.DataFrame(ret_rows, columns=['Label','Day','Retention %','Seg'])
         ra, rb = st.columns(2)
         with ra:
             df_onb = ret_df[ret_df['Seg']=='onboarding_cohort']
@@ -643,8 +655,8 @@ with t3:
             st.plotly_chart(fig, use_container_width=True, key="t3_ret_gold")
 
     sec("Ordering Retention by Acquisition Channel")
-    if not fo.empty and 'acquisition_channel' in fo.columns:
-        fo_ch = fo.copy()
+    if not fu_new.empty and not fo_hist.empty and 'acquisition_channel' in fo_hist.columns:
+        fo_ch = fo_hist[fo_hist['user_id'].isin(fu_new['user_id'])].copy()
         fo_ch['cohort_month'] = pd.to_datetime(fo_ch['signup_date']).dt.to_period('M')
         fo_ch['order_month']  = fo_ch['order_time'].dt.to_period('M')
         fo_ch['period'] = ((fo_ch['order_month'].dt.year  - fo_ch['cohort_month'].dt.year)*12 +
@@ -652,12 +664,12 @@ with t3:
         fo_ch = fo_ch[fo_ch['period'] >= 0]
         ch_ret_rows = []
         for ch in sorted(fo_ch['acquisition_channel'].dropna().unique()):
-            ch_users = fu[fu['acquisition_channel']==ch]['user_id'].nunique()
+            ch_users = fu_new[fu_new['acquisition_channel']==ch]['user_id'].nunique()
             ch_data  = fo_ch[fo_ch['acquisition_channel']==ch]
-            for period in sorted(ch_data['period'].unique()):
-                active = ch_data[ch_data['period']==period]['user_id'].nunique()
+            for p in sorted(ch_data['period'].unique()):
+                active = ch_data[ch_data['period']==p]['user_id'].nunique()
                 ch_ret_rows.append({'Channel':ch.replace('_',' ').title(),
-                                    'Period':period,
+                                    'Period':p,
                                     'Retention %':active/ch_users*100 if ch_users>0 else 0})
         df_ch_ret = pd.DataFrame(ch_ret_rows)
         if not df_ch_ret.empty:
@@ -674,7 +686,7 @@ with t3:
                .merge(fu[['user_id','is_zomato_gold','onboarding_cohort']], on='user_id', how='left'))
         uoc['Type'] = pd.cut(uoc['orders'], bins=[0,1,3,7,9999],
                              labels=['1 Order','2–3 Orders','4–7 Orders','Power User'])
-        oa, ob, oc_ = st.columns(3)
+        oa, ob = st.columns(2)
         with oa:
             td = uoc['Type'].value_counts().sort_index().reset_index(); td.columns=['Type','Users']
             fig = px.bar(td, x='Type', y='Users', color='Users',
@@ -690,35 +702,26 @@ with t3:
             T(fig, "Repeat Rate: Gold vs Standard", h=260)
             fig.update_layout(yaxis=dict(ticksuffix='%'), showlegend=False)
             st.plotly_chart(fig, use_container_width=True, key="t3_rep_gold")
-        with oc_:
-            rep_coh = (uoc.groupby('onboarding_cohort')
-                       .apply(lambda x: (x['orders']>1).mean()*100).reset_index(name='Repeat %'))
-            fig = px.bar(rep_coh, x='onboarding_cohort', y='Repeat %', color='onboarding_cohort',
-                         color_discrete_map={'Standard':GY,'Frictionless':R},
-                         text_auto='.1f', labels={'onboarding_cohort':''})
-            T(fig, "Repeat Rate by Onboarding Flow", h=260)
-            fig.update_layout(yaxis=dict(ticksuffix='%'), showlegend=False)
-            st.plotly_chart(fig, use_container_width=True, key="t3_rep_onb")
 
 
 with t4:
-    sec("User Demographics")
+    sec("User Demographics — Active Users in Period")
     d1, d2, d3 = st.columns(3)
     with d1:
-        sb = fu.groupby(['city_tier','platform']).size().reset_index(name='n')
+        sb = fu_act.groupby(['city_tier','platform']).size().reset_index(name='n')
         fig = px.sunburst(sb, path=['city_tier','platform'], values='n', color='city_tier',
                           color_discrete_map={'Tier_1':R,'Tier_2':OR,'Tier_3':YL})
         T(fig, "Users by City Tier & Platform", h=300)
         st.plotly_chart(fig, use_container_width=True, key="t4_dem_sunburst")
     with d2:
-        ab2 = pd.cut(fu['age'], bins=[17,22,26,31,40,60], labels=['18-22','23-26','27-31','32-40','41+'])
+        ab2 = pd.cut(fu_act['age'], bins=[17,22,26,31,40,60], labels=['18-22','23-26','27-31','32-40','41+'])
         ad = ab2.value_counts().sort_index().reset_index(); ad.columns = ['Age','Count']
         fig = px.bar(ad, x='Age', y='Count', color='Count',
                      color_continuous_scale=[[0,'#FEE2E2'],[1,R]])
         T(fig, "User Age Distribution", h=300); fig.update_layout(coloraxis_showscale=False)
         st.plotly_chart(fig, use_container_width=True, key="t4_dem_age")
     with d3:
-        gd = fu['is_zomato_gold'].map({True:'Gold',False:'Standard'}).value_counts().reset_index()
+        gd = fu_act['is_zomato_gold'].map({True:'Gold',False:'Standard'}).value_counts().reset_index()
         gd.columns = ['Type','Count']
         fig = px.pie(gd, names='Type', values='Count', hole=0.60,
                      color_discrete_map={'Gold':R,'Standard':'#D1D5DB'})
@@ -765,11 +768,12 @@ with t4:
         T(fig, "Delivered GMV by City Tier", h=260); fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True, key="t4_rev_tier")
     with r2:
-        fe_c = fe[fe['event_name']=='app_open'].assign(month=lambda x: x['event_time'].dt.to_period('M').astype(str))
+        fe_c = fe[fe['event_name']=='app_open'].assign(month=lambda x: time_bucket(x['event_time']))
         plat_trend = fe_c.groupby(['month','platform']).size().reset_index(name='sessions')
         fig = px.bar(plat_trend, x='month', y='sessions', color='platform', barmode='stack',
-                     color_discrete_sequence=CAT, labels={'sessions':'App Opens'})
-        T(fig, "Monthly Sessions by Platform", h=260)
+                     color_discrete_sequence=CAT, labels={'sessions':'App Opens', 'month':''})
+        T(fig, f"{GRAIN_LABEL} Sessions by Platform", h=260)
+        fig.update_xaxes(tickformat=GRAIN_FMT)
         st.plotly_chart(fig, use_container_width=True, key="t4_rev_plat")
 
     sec("Channel GMV Deep-Dive")
@@ -839,7 +843,8 @@ with t5:
     rk1, rk2, rk3, rk4 = st.columns(4)
     rk1.metric("Delivered GMV",    f"₹{del_o['amount_inr'].sum()/1e6:.2f}M" if not del_o.empty else "—")
     rk2.metric("Avg Order Value",      f"₹{del_o['amount_inr'].mean():,.0f}"     if not del_o.empty else "—")
-    rk3.metric("Avg Customer LTV",     f"₹{ltv_val:,.0f}"                        if not del_o.empty else "—")
+    rk3.metric("Avg GMV per Customer", f"₹{ltv_val:,.0f}"                        if not del_o.empty else "—",
+               help="Delivered GMV per ordering customer within the selected period.")
     rk4.metric("Gold GMV Share",   f"{gold_rev/tot_rev*100:.1f}%"             if tot_rev > 0 else "—")
 
     sec("Promo Code Impact")
@@ -865,7 +870,7 @@ with t5:
         T(fig, "GMV Share by Promo", h=260); fig.update_layout(showlegend=False)
         st.plotly_chart(fig, use_container_width=True, key="t5_promo_rev")
 
-    sec("Customer Lifetime Value by Acquisition Channel")
+    sec("Customer Value by Acquisition Channel")
     if not del_o.empty and 'acquisition_channel' in del_o.columns:
         ltv_df = del_o.groupby(['user_id','acquisition_channel'])['amount_inr'].sum().reset_index()
         ltv_df.columns = ['user_id','channel','ltv']
@@ -873,8 +878,8 @@ with t5:
         ltv_ch['Channel'] = ltv_ch['channel'].str.replace('_',' ').str.title()
         fig = px.bar(ltv_ch, x='Channel', y='ltv', color='Channel',
                      color_discrete_map={k.replace('_',' ').title():v for k,v in CHANNEL_COLORS.items()},
-                     text_auto='.0f', labels={'ltv':'Avg LTV ₹'})
-        T(fig, "Average LTV per Customer by Channel", h=300)
+                     text_auto='.0f', labels={'ltv':'Avg GMV per Customer ₹'})
+        T(fig, "Average GMV per Customer by Channel", h=300)
         fig.update_layout(showlegend=False, yaxis=dict(tickprefix='₹'))
         st.plotly_chart(fig, use_container_width=True, key="t5_ltv_bar")
 
@@ -944,9 +949,9 @@ with t6:
 
     sec("Platform Health at a Glance")
     oh1,oh2,oh3,oh4 = st.columns(4)
-    oh1.metric("App Crash Rate",       f"{cr_rate:.2f}%",  delta="▲ Crashes/Sessions", delta_color="inverse")
-    oh2.metric("Payment Failure Rate", f"{pf_rate:.2f}%",  delta="▲ Failed/Attempts",  delta_color="inverse")
-    oh3.metric("Order Cancel Rate",    f"{can_rate:.2f}%", delta="▲ Cancelled/Total",  delta_color="inverse")
+    oh1.metric("App Crash Rate",       f"{cr_rate:.2f}%",  help="Crashes / Sessions")
+    oh2.metric("Payment Failure Rate", f"{pf_rate:.2f}%",  help="Failed / Attempts")
+    oh3.metric("Order Cancel Rate",    f"{can_rate:.2f}%", help="Cancelled / Total")
     oh4.metric("Total Failure Events", f"{crashes+pay_fail:,}")
 
     sec("Payment Failure & Crash Analysis by Platform")
@@ -1017,12 +1022,13 @@ with t6:
         fig.update_layout(coloraxis_showscale=False)
         st.plotly_chart(fig, use_container_width=True, key="t6_order_heatmap")
 
-    sec("Monthly Order Volume by Status")
+    sec(f"{GRAIN_LABEL} Order Volume by Status")
     if not fo.empty:
-        fo_cm = fo.assign(month=lambda x: x['order_time'].dt.to_period('M').astype(str))
+        fo_cm = fo.assign(month=lambda x: time_bucket(x['order_time']))
         ms = fo_cm.groupby(['month','order_status']).size().reset_index(name='count')
         fig = px.bar(ms, x='month', y='count', color='order_status', barmode='stack',
                      color_discrete_map={'Delivered':GR,'Cancelled':R},
-                     labels={'count':'Orders','order_status':'Status'})
-        T(fig, "Monthly Order Volume by Status", h=280)
+                     labels={'count':'Orders','order_status':'Status','month':''})
+        T(fig, f"{GRAIN_LABEL} Order Volume by Status", h=280)
+        fig.update_xaxes(tickformat=GRAIN_FMT)
         st.plotly_chart(fig, use_container_width=True, key="t6_ord_stat")
